@@ -1,0 +1,45 @@
+图名建议：
+图 5 损失权重选择与验证流程
+
+建议放置位置：
+实验设置、消融实验小节，或作为补充图。
+
+图的核心结论：
+lambda_flux 和 lambda_dist 不是拍脑袋确定，而是由“数量级扫描 - 二维局部网格 - 三种子确认”的流程确定。最终选择以 table-g 相对误差为主指标，因为论文目标是提升 IPNM1 局部导通率预测精度。
+
+画面内容：
+建议画成流程图。
+
+步骤 1：数量级扫描
+- lambda_flux = 0, 0.01, 0.10, 1.0
+- 结论：积分流量约束有效，最优区域在 10^-1 量级。
+
+步骤 2：二维局部网格
+- lambda_flux in {0.05, 0.10, 0.20}
+- lambda_dist in {0, 0.005, 0.01, 0.02}
+- 输出：table-g error heatmap。
+- 可在图中放一个小热图框，不需要具体每格数字，后续数据图可放完整热图。
+
+步骤 3：三种子确认
+- candidates:
+  (0.20, 0.005)
+  (0.05, 0.005)
+  (0.10, 0.005)
+  (0.10, 0.01)
+- seeds = 42, 43, 44
+
+步骤 4：最终选择
+- primary metric: table-g mean relative error
+- secondary metrics: q relative error, velocity R2
+- final:
+  lambda_flux = 0.20
+  lambda_dist = 0.005
+  lambda_pois = 0
+
+建议在流程底部写：
+The selected weights optimize conductance accuracy rather than pixel-wise velocity R2 alone.
+
+注意：
+- 如果这张图和数据热图重复，正文可以放流程图，补充材料放完整热图。
+- 这张图的重点是“评审可接受的选择流程”，不是展示所有实验数字。
+

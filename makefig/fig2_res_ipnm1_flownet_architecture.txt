@@ -1,0 +1,52 @@
+图名建议：
+图 2 Res-IPNM1-FlowNet 网络结构示意图
+
+建议放置位置：
+方法部分“速度场代理模型”或“神经网络结构”小节。
+
+图的核心结论：
+模型采用残差编码器-解码器结构学习统一的几何到速度场映射，不依赖岩样分类。残差块增强几何特征提取能力，解码器恢复 64 x 64 的局部速度场。
+
+画面内容：
+建议画成横向 U 型或编码器-解码器结构。
+
+输入：
+- 多通道几何张量 X_i。
+- 尺寸标注：C x 64 x 64。
+- 通道说明：mask、distance map、eta/geometry map、time-of-flight-like descriptors、local porosity、coordinates。
+
+编码器：
+- 3 个下采样阶段。
+- 每个阶段画成 Residual Block + Downsample。
+- 通道数可以不写死，或者写 base, 2base, 4base, 8base。
+- 标注“shared geometry encoder”。
+
+瓶颈：
+- 画一个 deepest latent block。
+- 标注“multi-scale throat geometry representation”。
+
+解码器：
+- 3 个上采样阶段。
+- 每个阶段画成 Upsample + Residual/Conv Block。
+- 可画 skip connection 从编码器对应层连接到解码器。
+
+输出：
+- 1 x 64 x 64 轴向速度场 u_hat(y,z)。
+- 输出热图颜色由低速到高速。
+- 固体区域速度为 0 或被 mask 约束。
+
+旁边小公式：
+u_hat_i = F_theta(X_i)
+
+训练目标可在图角落简写：
+L = L_field + lambda_flux L_flux + lambda_dist L_dist
+
+最终建议参数：
+lambda_flux = 0.20
+lambda_dist = 0.005
+lambda_pois = 0
+
+注意：
+- 如果后续还想展示 dynamic weighting 或 ARS，不要塞进这张网络结构图，避免太乱。放到 fig3。
+- 不要把模型命名成 U-Net 主模型，当前更准确叫 Res-IPNM1-FlowNet / residual encoder-decoder surrogate。
+

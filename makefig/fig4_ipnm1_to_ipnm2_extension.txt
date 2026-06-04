@@ -1,0 +1,39 @@
+图名建议：
+图 4 从 IPNM1 局部导通率代理到 IPNM2 网络级扩展的关系
+
+建议放置位置：
+讨论部分，或方法最后“与 Zhao 等 IPNM1/IPNM2 框架的关系”小节。
+
+图的核心结论：
+本文当前完成的是 IPNM1 局部 LBM 求解器的代理替代，即快速预测喉道局部导通率；同时将预测导通率回填至教师孔网压力求解器，完成有效渗透率验证。IPNM2 方向可在此基础上进一步扩展为子喉道导通率模块。
+
+画面内容：
+建议上下两层。
+
+上层：本文已完成 IPNM1 局部代理
+1. local throat cross-section
+2. velocity-field surrogate
+3. q integration
+4. local conductance g
+这些模块用实线箭头连接，并标注“completed in this work”。
+
+下层：未来 IPNM2 网络级扩展
+1. pore network topology
+2. assign predicted g to network throats
+3. solve pressure field
+4. compute edge fluxes
+5. effective permeability K
+这些模块用虚线箭头连接，并标注“future IPNM2 extension”。
+
+中间连接：
+从上层 local conductance g 画虚线箭头到下层 assign predicted g。
+
+关键文字：
+- Current work: local conductance prediction for IPNM1.
+- Future work: network backfilling, pressure solution and effective permeability.
+- Avoid overclaiming current network-level permeability.
+
+建议视觉元素：
+- 上层用局部截面热图和小公式。
+- 下层用简化孔网节点-边图。
+- 实线表示本文完成，虚线表示未来扩展。

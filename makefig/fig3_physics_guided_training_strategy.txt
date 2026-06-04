@@ -1,0 +1,53 @@
+图名建议：
+图 3 物理约束训练策略与自适应机制探索
+
+建议放置位置：
+方法部分末尾，或消融实验 3.3/3.4 附近。
+
+图的核心结论：
+本文训练目标以最终导通率链条为导向。主模型采用速度场监督、积分流量一致性和速度分布统计约束；同时评估了自适应残差采样和动态自适应权重，但最终以验证集和三种子导通率误差选择稳定设置。
+
+画面布局：
+建议分成三栏。
+
+左栏：主损失函数
+- 显示预测速度场和 LBM 参考速度场。
+- 写：
+  L_field = mean |u_hat - u|
+- 显示速度场积分：
+  q_hat = integral_A u_hat dA
+  L_flux = |q_hat - q| / (|q| + eps)
+- 显示分布统计：
+  L_dist compares mean, std and quantiles of pore-region velocity
+- 总公式：
+  L = L_field + lambda_flux L_flux + lambda_dist L_dist
+- 最终主模型参数：
+  lambda_flux = 0.20, lambda_dist = 0.005, lambda_pois = 0
+
+中栏：自适应残差采样 ARS
+- 画一个训练样本池，每个喉道样本有不同残差颜色。
+- 高残差样本箭头变粗，表示下一轮更容易被抽到。
+- 写采样概率：
+  p_i = (1 - eta) / N + eta clip(r_i)^tau / sum_j clip(r_j)^tau
+- 三种残差可用小标签：
+  ARS-field, ARS-flux, ARS-joint
+- 标注本实验中 ARS-flux 表现较好，但未作为最终最优主模型。
+
+右栏：动态自适应权重
+- 画随 epoch 变化的 lambda_eff 曲线。
+- 写：
+  lambda_flux_eff(t) updated from relative loss descent
+- 或写：
+  w_i(t) proportional to exp(rho_i(t) / tau)
+- 标注“tested as adaptive weighting baseline”。
+- 说明动态权重可缓解人工定 lambda 的问题，但本数据上未稳定优于局部网格消融固定权重。
+
+图下方建议放一个小决策框：
+Selection criterion:
+primary = table-g mean relative error
+secondary = q error and velocity-field consistency
+
+注意：
+- 这张图是机制说明，不放具体数字表格。
+- 不要把 ARS 和动态权重说成最终一定优于主模型；它们是被系统评估的自适应训练策略。
+

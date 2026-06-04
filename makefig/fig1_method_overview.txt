@@ -1,0 +1,49 @@
+图名建议：
+图 1 速度场优先的 IPNM1 局部导通率代理框架
+
+建议放置位置：
+方法部分开头，或实验结果部分第一张总览图。
+
+图的核心结论：
+本文不是直接黑箱拟合导通率，而是先从真实二维喉道截面预测轴向速度场，再通过物理积分得到流量 q 和局部导通率 g。该流程保留了速度分布信息，并与 IPNM1 的局部 LBM 求解环节对应。
+
+画面内容：
+从左到右画 5 个模块：
+
+1. 原始局部喉道截面
+   - 显示一个二值孔隙/固体截面。
+   - 标注“真实喉道二维截面 / pore mask”。
+   - 可叠加距离变换或几何描述符小图标，表示输入不只是分类标签。
+
+2. 几何特征张量
+   - 画成多通道堆叠卡片。
+   - 通道建议标注：mask、distance map、local geometry descriptors、coordinates。
+   - 强调“不输入岩样类别 / no rock classification”。
+
+3. Res-IPNM1-FlowNet
+   - 画成编码器-解码器网络块。
+   - 输入为几何张量，输出为轴向速度场。
+   - 标注“geometry-to-velocity surrogate”。
+
+4. 速度场积分
+   - 显示预测速度热图。
+   - 旁边写公式：
+     q_hat = integral_A u_hat(y,z) dA
+   - 离散图可以画成孔隙像素求和。
+
+5. IPNM1 局部导通率
+   - 写公式：
+     g_hat = q_hat / Delta p
+   - 标注“local throat conductance”。
+   - 末端可接一个虚线框：“future network-level permeability in IPNM2”，表示本文不直接完成网络级有效渗透率。
+
+重要标注：
+- “Velocity-field first, conductance by physical integration”
+- “No rock-type classification”
+- “Current scope: IPNM1 local conductance”
+- “Future extension: IPNM2 network backfilling and effective permeability”
+
+不建议画的内容：
+- 不要画成直接从输入到一个 scalar g 的黑箱箭头。
+- 不要声称已经完成完整孔网压力场和有效渗透率求解。
+
