@@ -23,5 +23,7 @@ runs/
 *.jpg
 *.jpeg
 
+!docs/figures/*.png
+
 .DS_Store
 Thumbs.db
