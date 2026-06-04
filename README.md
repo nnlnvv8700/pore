@@ -1,74 +1,95 @@
-# IPNM1 pore-flow surrogate workflow
+# Res-IPNM1-FlowNet pore-flow surrogate
 
-本仓库整理了一套面向多孔介质孔隙/喉道流动预测的深度学习工作流。核心目标是用神经网络从几何截面快速预测局部速度场与等效通量/导流能力，再把预测结果回填到 PNM 压力求解器中，验证全局渗透率是否能保持物理一致性。
+This repository contains the current IPNM1 workflow for learning a local
+geometry-to-velocity surrogate and converting the predicted velocity field into
+flow rate, conductance, and finally network-scale permeability.
 
-> 数据、训练输出、模型权重和大体积结果没有上传到 GitHub。它们在本地保留于 `data/`、`300x200x200_data/`、`runs/`、`dataset_all_32.h5` 等路径，并已通过 `.gitignore` 排除。
+The current paper-facing model is **Ours / Res-IPNM1-FlowNet**:
 
-## 关键图
+- backbone: residual encoder-decoder, `res_ed`
+- training script: `code/train_architecture_comparison.py`
+- final selected setting: `L = L_field + 0.20 L_flux + 0.005 L_dist`
+- seeds: `42, 43, 44`
+- final checkpoints:
+  `runs/lambda_selected_3seed_20260529/flux_0p2__dist_0p005__seed_<seed>/res_ed/best.pt`
+- final model is a unified geometry-driven model: no rock classifier, no
+  rock-type input channel, and no FiLM conditioning
 
-### 方法总览
+Large local data and outputs are not committed. `data/`, `300x200x200_data/`,
+`runs/`, `dataset_all_32.h5`, checkpoints, arrays, and large figures are kept
+out of Git by `.gitignore`.
+
+## Key Figures
+
+### Method Overview
 
 ![Method schematic](docs/figures/fig1_method_schematic.png)
 
-从 CFD/LBM 或 teacher PNM 几何中提取孔隙截面，构建标准化 patch 数据集；模型预测局部速度场/通量相关量；最后把神经网络预测的喉道导流能力用于 PNM 全局渗透率求解。
+The route is geometry first: real throat cross-section -> Res-IPNM1-FlowNet
+velocity field -> physical integration to local flow rate `q` -> IPNM1
+conductance `g` -> conductance backfill into the teacher PNM pressure solver.
 
-### 速度场预测示例
+### Velocity Field Examples
 
 ![Velocity field examples](docs/figures/fig2_velocity_field_examples.png)
 
-图中对比了真实速度场、模型预测速度场与局部误差，用来检查模型是否学到孔隙中心高速、壁面低速和固体区域为零的基本物理形态。
+The model predicts a dense axial velocity field, not only a scalar. This is the
+main difference from direct `q` or `g` regression baselines.
 
-### 通量与导流能力验证
+### Local q/g Validation
 
 ![Q and conductance validation](docs/figures/fig3_q_g_validation.png)
 
-该图用于验证局部预测量与 teacher 结果的一致性，重点关注通量 `q`、导流能力 `g` 以及不同岩性样本上的拟合稳定性。
+Predicted velocity fields are integrated over the pore region to recover local
+flow rate and conductance. The final evaluation checks both field accuracy and
+scalar IPNM1 consistency.
 
-### 主结果与通量损失消融
+### Main Metrics and Ablation
 
 ![Main metrics and flux ablation](docs/figures/fig4_main_metrics_flux_ablation.png)
 
-该图汇总不同模型/损失设置的主要指标，展示通量约束、距离场约束和联合损失对全局/局部误差的影响。
+The final model is selected by conductance-facing metrics, with velocity-field
+accuracy retained as a required constraint.
 
-### 直接标量基线
+### Direct Scalar Baseline
 
 ![Direct scalar baseline](docs/figures/fig5_direct_scalar_baseline.png)
 
-直接回归标量通量或导流能力可以作为轻量基线；与速度场代理模型对比时，用于判断“预测场再积分”和“直接标量预测”的误差差异。
+Scalar baselines are useful negative/control experiments, but they do not
+produce a velocity distribution for downstream transport analysis.
 
-## 工作流程
+## Current Workflow
 
 ```mermaid
 flowchart LR
-    A["Raw CFD / PNM files<br/>data/, 300x200x200_data/"] --> B["Patch extraction<br/>build_hdf5_dataset_v2.py"]
-    B --> C["HDF5 dataset<br/>dataset_all_32.h5"]
-    C --> D["Velocity-field training<br/>train_unet_h5.py"]
-    D --> E["Inference and metrics<br/>infer_unet_h5.py"]
-    E --> F["Conductance postprocess<br/>postprocess_conductance.py"]
-    F --> G["PNM pressure solve<br/>solve_pnm_with_conductance.py"]
-    G --> H["Paper figures and tables<br/>make_ipnm1_paper_figures.py"]
+    A["Raw CFD / teacher IPNM1 resources<br/>data/, 300x200x200_data/"] --> B["Build local cross-section dataset<br/>build_hdf5_dataset_v2.py"]
+    B --> C["Velocity-supervised HDF5<br/>dataset_all_32.h5"]
+    C --> D["Architecture and lambda training<br/>train_architecture_comparison.py"]
+    D --> E["Selected Res-IPNM1-FlowNet<br/>res_ed best.pt"]
+    E --> F["Local q/g recovery<br/>postprocess_conductance.py"]
+    E --> G["Teacher-geometry inference<br/>infer_arch_teacher_geom.py"]
+    G --> H["Conductance backfill<br/>postprocess_conductance.py"]
+    H --> I["Global PNM solve<br/>solve_teacher_pnm_permeability.py"]
+    F --> J["Paper tables and figures"]
+    I --> J
 ```
 
-### 1. 准备原始数据
+## 1. Prepare Local Data
 
-本地数据目录通常包含六类岩石/孔隙结构样本：
+The workflow assumes two local resources:
 
 ```text
-data/
-  1/
-  2/
-  3/
-  4/
-  5/
-  6/
-300x200x200_data/
+data/                 # velocity-supervised CFD/Tecplot-style local samples
+300x200x200_data/     # teacher IPNM1 geometry, conductance tables, PNM files
 ```
 
-`data/` 主要用于从 CFD/Tecplot 输出构建局部截面数据集；`300x200x200_data/` 主要用于 teacher PNM 几何、喉道表和全局压力求解验证。二者体积较大，因此不进入 Git。
+These directories are intentionally ignored because they are data resources,
+not source code.
 
-### 2. 构建 HDF5 数据集
+## 2. Build the HDF5 Training Dataset
 
-推荐使用新版构建脚本：
+`dataset_all_32.h5` is the velocity-supervised local cross-section dataset used
+by the architecture comparison and lambda-selection workflow.
 
 ```bash
 python code/build_hdf5_dataset_v2.py \
@@ -83,151 +104,220 @@ python code/build_hdf5_dataset_v2.py \
   --compression gzip
 ```
 
-构建阶段完成以下处理：
+The builder extracts pore masks and axial velocity fields, filters invalid
+patches, recenters and rescales pore geometry, and stores geometry tensors,
+velocity labels, `scale_s`, `rock_type`, `global_id`, and other metadata.
 
-- 解析 Tecplot/CFD 输出，读取孔隙 mask 与 `ux` 速度场。
-- 按滑窗抽取局部 patch，并过滤触边、面积过小、中心孔隙不足或连通性差的样本。
-- 对孔隙几何做中心对齐与尺度归一化。
-- 生成输入通道，例如 `mask`、距离场 `dist`、局部孔隙率/辅助几何特征。
-- 写出统一的 HDF5 数据集，供训练、推理和消融实验复用。
+## 3. Train the Current Main Model
 
-### 3. 训练速度场代理模型
+The final model is trained through the unified architecture-comparison script,
+not through the older U-Net-only training path.
 
-主训练脚本是 `code/train_unet_h5.py`。它包含 U-Net/残差编码器、rock-type 条件化、FiLM、通量损失、壁面约束、单调性约束和若干标量辅助项。
+Single-seed example for the selected final setting:
 
 ```bash
-python code/train_unet_h5.py \
+python code/train_architecture_comparison.py \
   --h5 dataset_all_32.h5 \
-  --out_dir runs/ipnm1_flownet \
-  --epochs 200 \
-  --batch_size 64 \
-  --type_flux_balanced_sampler \
-  --use_softplus \
-  --use_rock_type_channel \
-  --use_film \
-  --lambda_q 10 \
-  --q_mix
+  --split-json runs/final_ipnm1_flownet_flux010_30e/split_info.json \
+  --data-root data \
+  --out-dir runs/lambda_selected_3seed_20260529/flux_0p2__dist_0p005__seed_42 \
+  --models res_ed \
+  --epochs 100 \
+  --batch-size 24 \
+  --lambda-flux 0.20 \
+  --lambda-dist 0.005 \
+  --lambda-poisson 0 \
+  --lambda-head 0.05 \
+  --seed 42 \
+  --device cuda \
+  --patience 100 \
+  --overwrite
 ```
 
-训练输出默认保存在 `runs/`：
+To reproduce the paper-facing three-seed selected-lambda run:
+
+```bash
+python code/run_selected_lambda_seeds.py \
+  --out-dir runs/lambda_selected_3seed_20260529 \
+  --epochs 100
+```
+
+This wrapper trains four candidate lambda settings over seeds `42, 43, 44` and
+summarizes them in:
 
 ```text
-runs/ipnm1_flownet/
-  best.pt
-  last.pt
-  config.json
-  history.json
-  training_log.csv
-  loss_curves_comparison.png
+runs/lambda_selected_3seed_20260529/selected_lambda_seed_rows.csv
+runs/lambda_selected_3seed_20260529/selected_lambda_group_summary.csv
 ```
 
-这些文件用于本地复现实验，但不随仓库上传。
+The paper-facing model uses the `0.20 / 0.005` run:
 
-### 4. 推理与局部指标评估
-
-```bash
-python code/infer_unet_h5.py \
-  --h5 dataset_all_32.h5 \
-  --ckpt runs/ipnm1_flownet/best.pt \
-  --out_dir runs/ipnm1_flownet/infer \
-  --use_softplus \
-  --use_rock_type_channel \
-  --use_film \
-  --save_field 1
+```text
+runs/lambda_selected_3seed_20260529/
+  flux_0p2__dist_0p005__seed_42/res_ed/best.pt
+  flux_0p2__dist_0p005__seed_43/res_ed/best.pt
+  flux_0p2__dist_0p005__seed_44/res_ed/best.pt
 ```
 
-推理阶段主要输出：
+## 4. Local Velocity, q, and Conductance Evaluation
 
-- `report.csv`：全体样本的误差指标。
-- `report_by_rock_type.csv`：按岩性/类别统计的指标。
-- `worst_cases.csv`：误差最大的样本。
-- `predictions.npz` 或 `predictions.h5`：可选保存预测场。
-- 可视化图：速度场对比、误差分布、通量散点图等。
-
-### 5. 导流能力后处理与 PNM 验证
-
-局部速度场预测不是终点。该项目进一步把预测结果转换为喉道导流能力，并回填到 PNM 网络求解全局渗透率。
-
-典型流程：
+`train_architecture_comparison.py` writes `predictions.npz` and summary files
+for each trained architecture. Conductance recovery is then done explicitly:
 
 ```bash
 python code/postprocess_conductance.py \
-  --pred runs/ipnm1_flownet/infer/predictions.npz \
-  --out_dir runs/ipnm1_flownet/conductance
-
-python code/solve_pnm_with_conductance.py \
-  --conductance_dir runs/ipnm1_flownet/conductance \
-  --out_dir runs/ipnm1_flownet/pnm_solve
+  --pred-file runs/lambda_selected_3seed_20260529/flux_0p2__dist_0p005__seed_42/res_ed/predictions.npz \
+  --pred-key pred_ux \
+  --true-file dataset_all_32.h5 \
+  --true-key Y \
+  --mask-file dataset_all_32.h5 \
+  --mask-key X \
+  --scale-file dataset_all_32.h5 \
+  --scale-key scale_s \
+  --index-file runs/lambda_selected_3seed_20260529/flux_0p2__dist_0p005__seed_42/res_ed/predictions.npz \
+  --index-key index \
+  --meta-file dataset_all_32.h5 \
+  --spatial-axis-order yz \
+  --flow-axis x \
+  --flow-mode pressure \
+  --conductance-mode ipnm2 \
+  --delta-p 1.0 \
+  --rho 1.0 \
+  --ax 1.0e-4 \
+  --segment-length 4.0 \
+  --mu-lbm 0.5 \
+  --target-mu 1.0 \
+  --undo-velocity-normalization \
+  --undo-area-normalization \
+  --permeability-root data \
+  --output-dir runs/lambda_selected_3seed_20260529/flux_0p2__dist_0p005__seed_42/res_ed/conductance_ipnm1_rho1
 ```
 
-如果要跑三随机种子或多模型全局对比，可使用：
+The key outputs are:
+
+```text
+conductance_results.csv
+conductance_summary.json
+```
+
+## 5. Teacher-Geometry Inference and Global PNM Validation
+
+The global validation does not stop at local q/g. The selected model is applied
+to teacher IPNM1 throat geometries, the predicted conductance is backfilled into
+the teacher PNM network, and the pressure solver computes global permeability.
+
+The wrapper for the current three-seed global route is:
 
 ```bash
-python code/run_ours_global_3seed.py
-python code/run_global_architecture_comparison.py
+python code/run_ours_global_3seed.py \
+  --teacher-geom-root runs/teacher_geom_full_all_20260529 \
+  --ckpt-root runs/lambda_selected_3seed_20260529 \
+  --out-dir runs/ours_global_3seed_20260530 \
+  --seeds 42 43 44 \
+  --batch-size 128 \
+  --device cuda
 ```
 
-当前完成记录见 `IPNM1_EXPERIMENT_COMPLETION.md`。其中三种子全局渗透率验证的平均相对误差约为 `2.68% +/- 2.23%`，Benth 和 Font 是更困难的全局 PNM case。
+Internally this calls:
 
-### 6. 汇总表格与论文图
-
-图表生成脚本集中在：
-
-```bash
-python code/make_ipnm1_paper_figures.py
-python code/make_selected_2_6_assets.py
-python code/render_training_curves_from_history.py
-python code/visualize_conductance_results.py
-python code/visual_compare_velocity_fields.py
+```text
+code/infer_arch_teacher_geom.py
+code/postprocess_conductance.py
+code/solve_teacher_pnm_permeability.py
 ```
 
-本 README 中展示的图来自本地 `runs/ipnm1_paper_figures_20260527/`，已复制为轻量 PNG 到 `docs/figures/` 便于 GitHub 预览。
+Current recorded global result:
 
-## 目录结构
+| Rock | Global K relative error |
+| --- | ---: |
+| Bead | 0.80% +/- 0.51% |
+| Benth | 5.14% +/- 0.15% |
+| Berea | 0.39% +/- 0.48% |
+| Font | 4.38% +/- 0.53% |
+| Mean | 2.68% +/- 2.23% |
+
+The timing record reports `3.90 +/- 0.37 ms` per throat cross-section on the
+current GPU/PyTorch environment. See `IPNM1_EXPERIMENT_COMPLETION.md`.
+
+Important caveat: the teacher folders
+`300x200x200_data/PNM_simulation/Benth` and
+`300x200x200_data/PNM_simulation/Berea` contain identical PNM files for topology
+and teacher conductance. Local geometry metrics remain valid, but global PNM
+interpretation for those two folders should be cautious.
+
+## 6. Architecture and Baseline Comparisons
+
+The six-model comparison is managed by `train_architecture_comparison.py`.
+The compared models are:
+
+```text
+Ours / res_ed
+IPNM-FlowNet-style baseline
+FNO
+ConvNeXt-ED
+Multi-task CNN
+U-Net
+```
+
+In this repository, U-Net is a baseline or legacy route, not the current main
+workflow. The older `code/train_unet_h5.py` and `code/infer_unet_h5.py` scripts
+are kept for reproducibility of earlier experiments.
+
+Paper-facing comparison sources are listed in `TODO_PLOTTING.md`, especially:
+
+```text
+runs/paper_six_model_full_comparison_20260530/six_model_full_comparison.csv
+runs/ours_global_3seed_20260530/ours_global_3seed_summary.csv
+runs/lambda_selected_3seed_20260529/selected_lambda_group_summary.csv
+```
+
+## Repository Layout
 
 ```text
 .
-  README.md                         # GitHub 首页工作流说明
-  code/                             # 核心数据处理、训练、推理、后处理脚本
-  docs/figures/                     # README 使用的关键轻量图
-  experiments/                      # 实验说明与配置记录
-  makefig/                          # 论文图构图说明
-  IPNM1_EXPERIMENT_COMPLETION.md    # 实验补全和结果记录
-  TODO_PLOTTING.md                  # 作图与论文材料 TODO
+  README.md                         # current workflow overview
+  code/                             # data, training, inference, postprocess scripts
+  docs/figures/                     # lightweight README figures
+  experiments/                      # experiment notes
+  makefig/                          # figure-planning notes
+  IPNM1_EXPERIMENT_COMPLETION.md    # completed experiment records
+  TODO_PLOTTING.md                  # paper-facing figure/data map
 ```
 
-未上传但本地工作流会用到：
+Ignored local resources:
 
 ```text
-data/                 # 原始/中间 CFD 数据
-300x200x200_data/     # teacher PNM 几何与求解材料
-runs/                 # 训练、推理、消融、图表输出
-dataset_all_32.h5     # 构建后的 HDF5 数据集
+data/
+300x200x200_data/
+runs/
+dataset_all_32.h5
+*.pt, *.h5, *.npy, *.npz, large image outputs
 ```
 
-## 核心脚本索引
+## Script Index
 
-| 脚本 | 作用 |
+| Script | Current role |
 | --- | --- |
-| `code/build_hdf5_dataset_v2.py` | 从原始 CFD/Tecplot 数据构建标准化 HDF5 patch 数据集 |
-| `code/train_unet_h5.py` | 训练速度场代理模型，支持通量/壁面/单调性等物理约束 |
-| `code/infer_unet_h5.py` | 加载 checkpoint 做推理，输出局部误差和可视化 |
-| `code/postprocess_conductance.py` | 将预测速度场/通量后处理为喉道导流能力 |
-| `code/solve_pnm_with_conductance.py` | 使用预测导流能力求解 PNM 全局渗透率 |
-| `code/run_ours_global_3seed.py` | 运行 Ours 三随机种子全局 PNM 验证 |
-| `code/run_global_architecture_comparison.py` | 汇总多模型全局渗透率对比 |
-| `code/train_architecture_comparison.py` | 训练/比较不同神经网络结构 |
-| `code/train_fno_baseline.py` | FNO 基线 |
-| `code/train_poreflownet_baseline.py` | PoreFlow-Net 风格基线 |
-| `code/train_scalar_q_baseline.py` | 直接标量通量/导流能力基线 |
-| `code/make_ipnm1_paper_figures.py` | 生成论文主图 |
+| `code/build_hdf5_dataset_v2.py` | Build `dataset_all_32.h5` from local CFD/Tecplot samples |
+| `code/train_architecture_comparison.py` | Main training/comparison entry point; final model uses `--models res_ed` |
+| `code/run_lambda_grid_ablation.py` | Lambda grid search over `lambda_flux` and `lambda_dist` |
+| `code/run_selected_lambda_seeds.py` | Three-seed confirmation of selected lambda candidates |
+| `code/infer_arch_teacher_geom.py` | Apply selected checkpoint to teacher geometry-only HDF5 files |
+| `code/postprocess_conductance.py` | Convert predicted velocity fields to q/g conductance tables |
+| `code/solve_teacher_pnm_permeability.py` | Backfill predicted conductance and solve global PNM permeability |
+| `code/run_ours_global_3seed.py` | Current Ours global K validation wrapper |
+| `code/run_global_architecture_comparison.py` | Global comparison wrapper for trained architecture checkpoints |
+| `code/make_ipnm1_paper_figures.py` | Generate paper figures from local outputs |
+| `code/train_unet_h5.py` | Legacy/U-Net route, not the current main model |
+| `code/infer_unet_h5.py` | Legacy/U-Net inference route |
 
-## 环境依赖
+## Environment
 
-建议使用 Python 3.10+ 与 PyTorch。常用依赖包括：
+Recommended environment:
 
 ```text
-torch
+Python 3.10+
+PyTorch with CUDA for training/inference
 numpy
 scipy
 h5py
@@ -237,14 +327,19 @@ tqdm
 scikit-image
 ```
 
-GPU 不是构建数据集的硬性要求，但训练和大规模推理建议使用 CUDA。
+Some local wrapper scripts currently contain absolute paths for the author's
+Windows environment, for example `E:\mhw\1\cup` and
+`D:\anaconda\envs\nnlnvv\python.exe`. If the project is moved, update those
+constants or call the underlying scripts directly with explicit arguments.
 
-## 复现顺序
+## Minimal Reproduction Order
 
-1. 准备本地 `data/` 与 `300x200x200_data/`。
-2. 运行 `code/build_hdf5_dataset_v2.py` 生成 `dataset_all_32.h5`。
-3. 运行 `code/train_unet_h5.py` 训练主模型。
-4. 运行 `code/infer_unet_h5.py` 做局部速度场/通量评估。
-5. 运行 `code/postprocess_conductance.py` 与 `code/solve_pnm_with_conductance.py` 做全局 PNM 验证。
-6. 运行 `code/make_ipnm1_paper_figures.py` 生成论文图和汇总表。
+1. Prepare local `data/` and `300x200x200_data/`.
+2. Build `dataset_all_32.h5` with `code/build_hdf5_dataset_v2.py`.
+3. Train/compare models with `code/train_architecture_comparison.py`.
+4. Run selected-lambda three-seed confirmation with
+   `code/run_selected_lambda_seeds.py`.
+5. Recover local q/g using `code/postprocess_conductance.py`.
+6. Run teacher-geometry global validation with `code/run_ours_global_3seed.py`.
+7. Generate paper figures using `code/make_ipnm1_paper_figures.py`.
 
